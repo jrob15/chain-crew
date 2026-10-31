@@ -1039,8 +1039,9 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       states.push(d.after);
     }
     const stats = computeStats(game, derived);
-    const drives = computeDrives(game, derived);
     const top = computeTOP(game, derived);
+    const drives = computeDrives(game, derived);
+    driveTimes(game, drives, top);
     return { final: cloneState(st), derived, states, stats, drives, top };
   }
 
@@ -1070,19 +1071,38 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     return out;
   }
 
+  /* A drive is one possession of scrimmage plays. Its yards are net: play yards plus accepted penalty yards for or
+     against the offense, so a 65-yard touchdown drive reads 65 even when a flag helped. Flags, timeouts and
+     wiped-out snaps between gaining the ball and the first counted snap start the drive (a false start on the
+     first snap counts against it); a flag on the play that gave them the ball stays with that play. */
   function computeDrives(game, derived) {
     const drives = [];
+    const events = game.events || [];
     let cur = null;
+    const penYds = (d, team) => { const f = (d && d.flags) || {}; return f.penalty && !f.declined && !f.offsetting && f.spotFrom != null && f.end != null ? gain(team, f.spotFrom, f.end) : 0; };
+    const PRE = { penalty: 1, timeout: 1, clock: 1, note: 1, rush: 1, pass: 1 };
     derived.forEach((d, i) => {
-      const ev = game.events[i];
+      const ev = events[i];
       if (!ev || d.nullified) return;
       if (ev.type === 'rush' || ev.type === 'pass' || ev.type === 'punt' || ev.type === 'fg') {
         const team = d.before.possession;
         if (!cur || cur.no !== d.before.driveNo || cur.team !== team) {
-          cur = { no: d.before.driveNo, team, start: d.before.spot, quarter: d.before.quarter, plays: 0, yards: 0, result: '', first: i, last: i };
+          const floor = drives.length ? drives[drives.length - 1].last + 1 : 0;
+          let first = i;
+          for (let j = i - 1; j >= floor; j--) {
+            const e = events[j], dj = derived[j], b = dj && dj.before;
+            if (!e || !b || !PRE[e.type] || b.driveNo !== d.before.driveNo || b.possession !== team || b.phase !== 'play') break;
+            if ((e.type === 'rush' || e.type === 'pass') && !dj.nullified) break;
+            if (e.type === 'penalty' && dj.flags && dj.flags.mode === 'add') break;
+            first = j;
+          }
+          const b0 = derived[first].before;
+          cur = { no: d.before.driveNo, team, start: b0.spot, quarter: b0.quarter, plays: 0, yards: 0, result: '', first, last: i };
+          for (let j = first; j < i; j++) cur.yards += penYds(derived[j], team);
           drives.push(cur);
         }
         cur.last = i;
+        cur.result = ''; // how the drive ended is whatever its last play did
         if (ev.type === 'rush' || ev.type === 'pass') { cur.plays += 1; cur.yards += d.flags.yards || 0; }
         const f = d.flags;
         if (f.td === team) cur.result = 'TD';
@@ -1093,12 +1113,48 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         else if (f.turnover === 'fumble') cur.result = 'Fumble';
         else if (f.downs) cur.result = 'Downs';
         else if (f.safety) cur.result = 'Safety';
-      } else if (ev.type === 'period_end' && cur && (d.before.quarter === 2 || d.flags.endedQuarter >= 4)) {
-        if (!cur.result) cur.result = 'End of half';
+      } else if (ev.type === 'penalty' && cur) {
+        // a flag during the drive moves it; one that wipes out the last snap counts from where that snap started
+        const f = d.flags || {}, mine = s => s && s.phase === 'play' && s.possession === cur.team && s.driveNo === cur.no;
+        if (mine(d.after) && (f.nullified || mine(d.before))) cur.yards += penYds(d, cur.team);
+        else if (f.downs && (f.nullified || mine(d.before))) cur.result = 'Downs';
+      } else if (cur && ((ev.type === 'period_end' && (d.before.quarter === 2 || d.flags.endedQuarter >= 4)) || ev.type === 'game_end')) {
+        const q = d.flags.endedQuarter;
+        if (!cur.result) cur.result = d.after.final ? 'End of game' : q === 2 ? 'End of half' : q === 4 ? 'End of regulation' : 'End of period';
         cur = null;
       }
     });
     return drives;
+  }
+
+  /* Game-clock time of each drive, built from the same per-play shares as time of possession, so a team's drives add
+     up to its possession time. Time on a kickoff belongs to the receiving team, so the return starts their drive.
+     A drive's time is left blank unless clock readings reach both of its ends, and marked approximate when a stretch
+     between two readings was shared with another drive (that stretch is split by play count). */
+  function driveTimes(game, drives, top) {
+    const n = (game.events || []).length;
+    const owner = new Array(n).fill(null);
+    drives.forEach((dr, k) => {
+      const prev = drives[k - 1];
+      for (let i = prev ? prev.last + 1 : 0; i < dr.first; i++) owner[i] = top.team[i] === dr.team ? dr : (prev && top.team[i] === prev.team ? prev : null);
+      for (let i = dr.first; i <= dr.last; i++) owner[i] = top.team[i] === dr.team ? dr : null;
+    });
+    const tail = drives[drives.length - 1];
+    if (tail) for (let i = tail.last + 1; i < n; i++) owner[i] = top.team[i] === tail.team ? tail : null;
+    const takers = {};
+    for (let i = 0; i < n; i++) if (top.alloc[i] > 0) (takers[top.span[i]] = takers[top.span[i]] || new Set()).add(owner[i]);
+    drives.forEach(dr => { dr.time = 0; dr.timeApprox = false; });
+    for (let i = 0; i < n; i++) {
+      const dr = owner[i];
+      if (!dr || !(top.alloc[i] > 0)) continue;
+      dr.time += top.alloc[i];
+      if (takers[top.span[i]].size > 1) dr.timeApprox = true;
+    }
+    drives.forEach(dr => {
+      const known = top.reliable && top.first != null && top.first <= dr.first && top.last > dr.last;
+      dr.time = known ? Math.round(dr.time) : null;
+      if (!known) dr.timeApprox = false;
+    });
   }
 
   /* ---------- game clock & time of possession ----------
@@ -1134,6 +1190,9 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     // who the clock is running for during event i: the receiving team on a kick, otherwise whoever has the ball at the snap
     const during = i => { const ev = events[i], d = derived[i]; if (!d) return null; if (ev.type === 'kickoff') return opp(d.before.kickTeam || d.before.possession); return d.before.possession; };
     const top = { home: 0, away: 0 };
+    // the seconds each entry was given, and which stretch between two readings they came from (drive times are built from these)
+    const alloc = events.map(() => 0), span = events.map(() => -1);
+    const give = (list, s, k) => list.forEach(i => { alloc[i] += s; span[i] = k; });
     let explicit = 0, approx = false; pts.forEach(p => { if (p.explicit) explicit++; });
     for (let k = 0; k + 1 < pts.length; k++) {
       const A = pts[k], B = pts[k + 1];
@@ -1141,16 +1200,18 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       if (!A.explicit && !B.explicit) approx = true; // a span with no reading at either end is split by play count
       const counts = { home: 0, away: 0 }; let any = 0;
       const others = { home: 0, away: 0 }; let anyOther = 0;
+      const plays = [], kicks = [];
       for (let i = A.i; i < B.i; i++) {
         const ev = events[i], d = derived[i]; if (!d || d.nullified) continue;
-        if (ev.type === 'rush' || ev.type === 'pass') { counts[d.before.possession] += 1; any++; }
-        else if (ev.type === 'punt' || ev.type === 'kickoff' || ev.type === 'fg') { const t = during(i); if (t) { others[t] += 1; anyOther++; } }
+        if (ev.type === 'rush' || ev.type === 'pass') { counts[d.before.possession] += 1; any++; plays.push(i); }
+        else if (ev.type === 'punt' || ev.type === 'kickoff' || ev.type === 'fg') { const t = during(i); if (t) { others[t] += 1; anyOther++; kicks.push(i); } }
       }
-      if (any) { top.home += el * counts.home / any; top.away += el * counts.away / any; }
-      else if (anyOther) { top.home += el * others.home / anyOther; top.away += el * others.away / anyOther; }
-      else { const t = during(A.i); const d = derived[A.i]; if (t && d && d.before.phase !== 'final') top[t] += el; }
+      if (any) { top.home += el * counts.home / any; top.away += el * counts.away / any; give(plays, el / any, k); }
+      else if (anyOther) { top.home += el * others.home / anyOther; top.away += el * others.away / anyOther; give(kicks, el / anyOther, k); }
+      else { const t = during(A.i); const d = derived[A.i]; if (t && d && d.before.phase !== 'final') { top[t] += el; give([A.i], el, k); } }
     }
-    return { home: Math.round(top.home), away: Math.round(top.away), clocks: explicit, reliable: explicit >= 2, approx };
+    return { home: Math.round(top.home), away: Math.round(top.away), clocks: explicit, reliable: explicit >= 2, approx,
+      alloc, span, team: events.map((ev, i) => during(i)), first: pts.length ? pts[0].i : null, last: pts.length ? pts[pts.length - 1].i : null };
   }
 
   /* ---------- descriptions ---------- */
@@ -2838,6 +2899,23 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
 
   /* ---------- exports ---------- */
   function pad(s, n, right) { s = String(s); return right ? s.padStart(n) : s.padEnd(n); }
+  // drive summary rows for the exports, in game order
+  function driveRows(g, R) {
+    const st = R.final, n = R.drives.length;
+    return R.drives.map((dr, k) => ({
+      no: k + 1, team: ab(g, dr.team), q: dr.quarter > 4 ? 'OT' : String(dr.quarter), start: E.fmtSpot(dr.start, g),
+      plays: dr.plays, yds: E.fmtYard(dr.yards),
+      time: dr.time == null ? '—' : (dr.timeApprox ? '~' : '') + E.fmtClock(dr.time), approx: !!dr.timeApprox,
+      result: dr.result || (k === n - 1 && !st.final && st.phase === 'play' && st.possession === dr.team ? 'In progress' : ''),
+      scored: dr.result === 'TD' || dr.result === 'FG'
+    }));
+  }
+  function driveNote(R, rows) {
+    const s = ['Yards include penalties.'];
+    if (!(R.top && R.top.reliable)) s.push('Drive times need the game clock (the app asks for it when a drive starts and ends).');
+    else if (rows.some(r => r.approx)) s.push('~ = estimated by play count where a clock entry was skipped.');
+    return s.join(' ');
+  }
   function exportBox(g, R) {
     const st = R.final, lines = [];
     const H = g.teams.home, A = g.teams.away;
@@ -2851,6 +2929,12 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     if (sc.length) { lines.push('', 'SCORING'); sc.forEach(s => lines.push(pad(s.q > 4 ? 'OT' : 'Q' + s.q, 4) + pad(ab(g, s.team), 6) + s.text + '  (' + s.score.home + '-' + s.score.away + ')')); }
     lines.push('', 'TEAM STATS' + pad('', 18) + pad(ab(g, 'home'), 10, true) + pad(ab(g, 'away'), 10, true));
     teamStatRows(g, R).forEach(r => lines.push(pad(r.k, 28) + pad(r.home.split(' (')[0], 10, true) + pad(r.away.split(' (')[0], 10, true)));
+    const dv = driveRows(g, R);
+    if (dv.length) {
+      lines.push('', 'DRIVE SUMMARY', pad('#', 3, true) + '  ' + pad('TEAM', 7) + pad('QTR', 5) + pad('START', 10) + pad('PLAYS', 5, true) + pad('YDS', 6, true) + pad('TIME', 7, true) + '  RESULT');
+      dv.forEach(r => lines.push(pad(r.no, 3, true) + '  ' + pad(r.team, 7) + pad(r.q, 5) + pad(r.start, 10) + pad(r.plays, 5, true) + pad(r.yds, 6, true) + pad(r.time, 7, true) + '  ' + r.result));
+      lines.push(driveNote(R, dv));
+    }
     ['home', 'away'].forEach(t => {
       lines.push('', '=== ' + g.teams[t].name.toUpperCase() + ' ===');
       Object.keys(COLS).forEach(k => {
@@ -2873,6 +2957,11 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     out.push(['Line score', ...ls.cols].join('\t')); ls.rows.forEach(r => out.push([ab(g, r.team), ...r.vals].join('\t')));
     out.push('');
     out.push(['Team stats', ab(g, 'home'), ab(g, 'away')].join('\t')); teamStatRows(g, R).forEach(r => out.push([r.k, r.home, r.away].join('\t')));
+    const dv = driveRows(g, R);
+    if (dv.length) {
+      out.push('', ['Drive summary', 'Team', 'Qtr', 'Start', 'Plays', 'Yds', 'Time', 'Result'].join('\t'));
+      dv.forEach(r => out.push([r.no, r.team, r.q, r.start, r.plays, r.yds, r.time, r.result].join('\t')));
+    }
     ['home', 'away'].forEach(t => {
       Object.keys(COLS).forEach(k => {
         const rows = playerRows(g, t, R, k); if (!rows.length) return;
@@ -2955,6 +3044,20 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     doc.autoTable({ startY: y, margin: { left: M, right: M }, tableWidth: W, styles: base, headStyles: head, columnStyles: { 0: { halign: 'left', cellWidth: W * 0.5 } }, alternateRowStyles: { fillColor: gray },
       head: [['', ab(g, 'home'), ab(g, 'away')]], body: teamStatRows(g, R).map(r => [r.k, r.home, r.away]) });
     y = doc.lastAutoTable.finalY + 18;
+    const dv = driveRows(g, R);
+    if (dv.length) {
+      heading('Drive summary');
+      // the note sits under the heading so it never lands on the next page away from its table
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(110);
+      const note = doc.splitTextToSize(driveNote(R, dv), W);
+      doc.text(note, M, y + 3); y += 9 * note.length + 1;
+      const left = t => ({ content: t, styles: { halign: 'left' } }), mid = t => ({ content: t, styles: { halign: 'center' } });
+      doc.autoTable({ startY: y, margin: { left: M, right: M }, tableWidth: W, styles: base, headStyles: head, alternateRowStyles: { fillColor: gray },
+        columnStyles: { 0: { cellWidth: 24 }, 1: { halign: 'left', fontStyle: 'bold', cellWidth: 58 }, 2: { halign: 'center', cellWidth: 30 }, 3: { halign: 'left', cellWidth: 76 }, 4: { cellWidth: 40 }, 5: { cellWidth: 40 }, 6: { cellWidth: 46 }, 7: { halign: 'left' } },
+        head: [['#', left('Team'), mid('Qtr'), left('Start'), 'Plays', 'Yds', 'Time', left('Result')]],
+        body: dv.map(r => [String(r.no), r.team, r.q, r.start, String(r.plays), r.yds, r.time, { content: r.result, styles: r.scored ? { fontStyle: 'bold' } : {} }]) });
+      y = doc.lastAutoTable.finalY + 18;
+    }
     ['home', 'away'].forEach(t => {
       const any = Object.keys(COLS).some(k => playerRows(g, t, R, k).length);
       if (!any) return;
