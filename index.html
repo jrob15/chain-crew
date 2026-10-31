@@ -222,6 +222,15 @@ details.adv > .stack { padding-bottom: 12px; }
 .bigseg.wrap { flex-wrap: wrap; }
 .bigseg button { flex: 1 1 auto; min-height: 50px; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font-family: var(--font-display); font-size: 18px; font-weight: 700; letter-spacing: .03em; min-width: 0; }
 .bigseg button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.bigseg.tall button { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.bigseg.tall button b { font-size: 19px; }
+.bigseg.tall button span { font-family: var(--font-body); font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.bigseg.tall button.on span { color: var(--bg); opacity: .75; }
+.lastplay-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
+.lastplay-card .lbl { margin-bottom: 2px; }
+.lastplay-card .tx { font-size: 15px; }
+.result-card { border: 2px solid var(--accent); border-radius: var(--radius); padding: 10px 12px; }
+.result-card .big { font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.1; }
 .spot-read { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
 .spot-read .yard { font-family: var(--font-display); font-size: 42px; font-weight: 700; line-height: 1; letter-spacing: .01em; }
 .spot-read .delta { font-size: 16px; color: var(--accent); font-weight: 600; margin-top: 2px; }
@@ -344,31 +353,34 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
   const PLAY_TYPES = { kickoff: 1, rush: 1, pass: 1, punt: 1, fg: 1, pat: 1 };
   const SCRIMMAGE = { rush: 1, pass: 1 };
 
+  // side: who it is usually on, relative to the team with the ball ('off' / 'def'), or 'any' (ask);
+  // kickSide: same on a kickoff ('kick' = kicking team); pre: a dead-ball foul before the snap (never wipes out a play)
   const PENALTY_PRESETS = [
-    { name: 'False start', side: 'off', yards: 5, from: 'current', down: 'keep' },
-    { name: 'Delay of game', side: 'off', yards: 5, from: 'current', down: 'keep' },
-    { name: 'Encroachment / offside', side: 'def', yards: 5, from: 'current', down: 'keep' },
-    { name: 'Illegal formation / shift / motion', side: 'off', yards: 5, from: 'previous', down: 'keep' },
-    { name: 'Too many players', side: 'any', yards: 5, from: 'current', down: 'keep' },
-    { name: 'Holding (offense)', side: 'off', yards: 10, from: 'previous', down: 'keep' },
-    { name: 'Holding (defense)', side: 'def', yards: 10, from: 'previous', down: 'keep' },
-    { name: 'Illegal block', side: 'any', yards: 10, from: 'previous', down: 'keep' },
-    { name: 'Pass interference (offense)', side: 'off', yards: 15, from: 'previous', down: 'keep' },
-    { name: 'Pass interference (defense)', side: 'def', yards: 15, from: 'previous', down: 'keep' },
-    { name: 'Intentional grounding', side: 'off', yards: 5, from: 'previous', down: 'loss' },
-    { name: 'Illegal forward pass', side: 'off', yards: 5, from: 'previous', down: 'loss' },
-    { name: 'Roughing the passer', side: 'def', yards: 15, from: 'current', down: 'auto' },
-    { name: 'Roughing the kicker', side: 'def', yards: 15, from: 'previous', down: 'auto' },
-    { name: 'Running into the kicker', side: 'def', yards: 5, from: 'previous', down: 'keep' },
-    { name: 'Personal foul', side: 'any', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Unsportsmanlike conduct', side: 'any', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Facemask', side: 'any', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Horse-collar tackle', side: 'def', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Chop block / clipping', side: 'off', yards: 15, from: 'previous', down: 'keep' },
-    { name: 'Illegal participation', side: 'any', yards: 15, from: 'previous', down: 'keep' },
-    { name: 'Kick-catch interference', side: 'any', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Targeting', side: 'any', yards: 15, from: 'current', down: 'keep' },
-    { name: 'Other', side: 'any', yards: 10, from: 'current', down: 'keep' }
+    { name: 'False start', side: 'off', yards: 5, down: 'keep', pre: true },
+    { name: 'Holding', side: 'off', yards: 10, down: 'keep' },
+    { name: 'Offside', side: 'def', kickSide: 'kick', yards: 5, down: 'keep' },
+    { name: 'Encroachment', side: 'def', yards: 5, down: 'keep', pre: true },
+    { name: 'Illegal formation / shift / motion', side: 'off', yards: 5, down: 'keep' },
+    { name: 'Delay of game', side: 'off', yards: 5, down: 'keep', pre: true },
+    { name: 'Illegal block in the back', side: 'off', yards: 10, down: 'keep' },
+    { name: 'Personal foul', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Pass interference (defense)', side: 'def', yards: 15, down: 'keep' },
+    { name: 'Pass interference (offense)', side: 'off', yards: 15, down: 'keep' },
+    { name: 'Facemask', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Unsportsmanlike conduct', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Roughing the passer', side: 'def', yards: 15, down: 'auto' },
+    { name: 'Intentional grounding', side: 'off', yards: 5, down: 'loss' },
+    { name: 'Illegal forward pass', side: 'off', yards: 5, down: 'loss' },
+    { name: 'Roughing the kicker', side: 'any', yards: 15, down: 'auto' },
+    { name: 'Running into the kicker', side: 'any', yards: 5, down: 'keep' },
+    { name: 'Kick-catch interference', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Free kick out of bounds', side: 'any', kickSide: 'kick', yards: 5, down: 'keep' },
+    { name: 'Horse-collar tackle', side: 'def', yards: 15, down: 'keep' },
+    { name: 'Chop block / clipping', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Too many players', side: 'any', yards: 5, down: 'keep' },
+    { name: 'Illegal participation', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Targeting', side: 'any', yards: 15, down: 'keep' },
+    { name: 'Other', side: 'any', yards: 10, down: 'keep' }
   ];
 
   const DEFAULT_SETTINGS = {
@@ -390,6 +402,11 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
   function toGoal(team, spot, L) { return (goal(team, L) - spot) * dir(team); }
   function reached(team, spot, ltg) { return ltg != null && (spot - ltg) * dir(team) >= 0; }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  // copy a game state keeping only one level of "state before the last play" (it used to nest every earlier play)
+  function cloneState(st) {
+    const sn = st.snapshot;
+    return clone(Object.assign({}, st, { snapshot: sn ? Object.assign({}, sn, { snapshot: null }) : null }));
+  }
 
   function settingsOf(game) { return Object.assign({}, DEFAULT_SETTINGS, game.settings || {}); }
   function kickSpotFor(team, game, kind) {
@@ -539,7 +556,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
   function applyEvent(st, ev, game, idx, derived) {
     const S = settingsOf(game), L = st.L;
     const deltas = [], flags = {};
-    const before = clone(st);
+    const before = cloneState(st);
     const type = ev.type;
 
     if (PLAY_TYPES[type]) { st.snapshot = before; st.snapshotIndex = idx; }
@@ -857,15 +874,29 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         const status = ev.status || 'accepted';
         flags.penalty = true;
         if (status === 'declined') { flags.declined = true; break; }
-        let base = st, nullified = false;
-        if ((ev.from === 'previous' || status === 'offsetting') && st.snapshot) {
-          Object.assign(st, clone(st.snapshot));
-          nullified = true;
-          if (derived && derived[before.snapshotIndex]) derived[before.snapshotIndex].nullified = true;
+        // How the flag relates to the last play that was entered:
+        //   'none' - before the snap, after the whistle, or on a play that was not entered: enforce from where the ball is now
+        //   'wipe' - on the last play entered, and that play does not count: back to where it started
+        //   'add'  - on the last play entered, and that play counts: the yards are added where it ended
+        // (older games stored from:'previous'/'current' instead)
+        const mode = ev.on || ((ev.from === 'previous' || status === 'offsetting') ? 'wipe' : 'none');
+        const snap = st.snapshot, snapIdx = st.snapshotIndex;
+        flags.mode = mode;
+        const wipe = () => {
+          // the quarter, timeouts and game-over flag stay as they are now; only the play is undone
+          const keep = { quarter: st.quarter, timeouts: clone(st.timeouts), final: st.final };
+          Object.assign(st, clone(snap), keep);
           st.snapshot = null; st.snapshotIndex = -1;
+          if (derived && derived[snapIdx]) derived[snapIdx].nullified = true;
+          flags.nullified = true;
+        };
+        if (status === 'offsetting') {
+          if (mode === 'wipe' && snap) wipe();
+          flags.offsetting = true; D(deltas, 'home', null, 'offsetting');
+          break;
         }
-        flags.nullified = nullified;
-        if (status === 'offsetting') { flags.offsetting = true; D(deltas, 'home', null, 'offsetting'); break; }
+        if (mode === 'wipe' && snap) wipe();
+        const playEnd = (mode === 'add' && snap) ? cloneState(st) : null; // where the counted play left things
         const yards = num(ev.yards, 0);
         const distOwn = Math.abs(st.spot - ownGoal(against, L));
         let eff = yards;
@@ -876,28 +907,44 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         D(deltas, against, null, 'penalties'); D(deltas, against, null, 'penaltyYds', eff);
         if (ev.player != null && ev.player !== '') { D(deltas, against, ev.player, 'penalties'); D(deltas, against, ev.player, 'penaltyYds', eff); }
         st.spot = newSpot;
-        if (st.phase === 'play' && st.possession) {
+        const dres = ev.downResult || 'keep';
+        const penFirst = team => { flags.firstDown = true; D(deltas, team, null, 'firstDowns'); D(deltas, team, null, 'firstDownsPen'); };
+        if (playEnd && st.phase === 'play' && st.possession) {
+          flags.added = true;
+          const team = st.possession;
+          const newSeries = snap.possession !== team || snap.phase !== 'play' || snap.driveNo !== playEnd.driveNo;
+          if (newSeries) {
+            // the play changed possession (kick, turnover): that team keeps the ball, new series after the yards
+            setFirstDown(st, team, newSpot);
+          } else {
+            // same series: the down is replayed from the new spot, unless that reaches the line to gain
+            const playReached = reached(team, playEnd.spot, snap.lineToGain);
+            st.down = snap.down; st.lineToGain = snap.lineToGain;
+            if (dres === 'auto') { penFirst(team); setFirstDown(st, team, newSpot); }
+            else if (dres === 'loss') { st.down = snap.down + 1; if (st.down > 4) { flags.downs = true; setFirstDown(st, opp(team), newSpot); } }
+            else if (reached(team, newSpot, st.lineToGain)) { if (!playReached && against !== team) penFirst(team); else flags.firstDown = true; setFirstDown(st, team, newSpot); }
+          }
+        } else if (st.phase === 'play' && st.possession) {
           const off = st.possession;
-          const dres = ev.downResult || 'keep';
-          if (dres === 'auto') { flags.firstDown = true; D(deltas, off, null, 'firstDowns'); D(deltas, off, null, 'firstDownsPen'); setFirstDown(st, off, newSpot); }
+          if (dres === 'auto') { penFirst(off); setFirstDown(st, off, newSpot); }
           else if (dres === 'loss') {
             st.down += 1;
             if (st.down > 4) { flags.downs = true; setFirstDown(st, opp(off), newSpot); }
-          } else if (against !== off && reached(off, newSpot, st.lineToGain)) {
-            flags.firstDown = true; D(deltas, off, null, 'firstDowns'); D(deltas, off, null, 'firstDownsPen'); setFirstDown(st, off, newSpot);
-          }
+          } else if (against !== off && reached(off, newSpot, st.lineToGain)) { penFirst(off); setFirstDown(st, off, newSpot); }
         }
-        // manual override of the result
+        // kickoffs and tries: only the spot moves
+        // manual override of the result (whose ball, spot, down, distance), applied after the computed enforcement
         const o = ev.override;
         if (o) {
-          if (o.possession && o.possession !== st.possession) { st.possession = o.possession; st.phase = 'play'; st.kickTeam = null; beginDrive(st, o.possession, st.spot); }
-          if (o.spot != null && o.spot !== '') st.spot = clamp(num(o.spot, st.spot), 0, L);
+          const spotSet = o.spot != null && o.spot !== '';
+          const distSet = o.distance != null && o.distance !== '';
+          if (spotSet) st.spot = clamp(num(o.spot, st.spot), 0, L);
+          if (o.possession && (o.possession !== st.possession || st.phase !== 'play')) setFirstDown(st, o.possession, st.spot);
+          else if (spotSet && !distSet && st.phase === 'play' && st.possession && st.lineToGain != null && reached(st.possession, st.spot, st.lineToGain)) setFirstDown(st, st.possession, st.spot);
           if (o.down != null && o.down !== '') st.down = clamp(num(o.down, st.down), 1, 4);
-          if (o.distance != null && o.distance !== '' && st.possession) {
+          if (distSet && st.possession) {
             if (o.distance === 'goal') st.lineToGain = goal(st.possession, L);
             else { let l = st.spot + num(o.distance, 10) * dir(st.possession); if ((goal(st.possession, L) - l) * dir(st.possession) <= 0) l = goal(st.possession, L); st.lineToGain = l; }
-          } else if (st.phase === 'play' && st.possession && (o.spot != null && o.spot !== '') && st.lineToGain != null && reached(st.possession, st.spot, st.lineToGain)) {
-            setFirstDown(st, st.possession, st.spot);
           }
           flags.end = st.spot; flags.overridden = true;
         }
@@ -973,9 +1020,9 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       derived.push(d);
       let r;
       try { r = applyEvent(st, ev, game, i, derived); }
-      catch (e) { r = { deltas: [], flags: { error: String(e && e.message || e) }, before: clone(st) }; }
+      catch (e) { r = { deltas: [], flags: { error: String(e && e.message || e) }, before: cloneState(st) }; }
       d.before = r.before; d.flags = r.flags; d.deltas = r.deltas;
-      d.after = clone(st);
+      d.after = cloneState(st);
       d.driveNo = st.driveNo;
       d.text = describe(ev, r.before, d.after, r.flags, game);
       states.push(d.after);
@@ -983,7 +1030,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     const stats = computeStats(game, derived);
     const drives = computeDrives(game, derived);
     const top = computeTOP(game, derived);
-    return { final: clone(st), derived, states, stats, drives, top };
+    return { final: cloneState(st), derived, states, stats, drives, top };
   }
 
   // state just before event index i (or final state when i == events.length)
@@ -1210,8 +1257,10 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         else {
           s += ', ' + ydsTxt(f.yards) + (f.halfDistance ? ' (half the distance)' : '');
           if (f.nullified) s += ', previous play wiped out';
-          if (f.firstDown) s += ', automatic 1st down';
+          if (f.added) s += ', added to the end of the play';
+          if (f.firstDown) s += ev.downResult === 'auto' ? ', automatic 1st down' : ', 1st down';
           if (ev.downResult === 'loss') s += ', loss of down';
+          if (f.overridden) s += ' (ball placed by hand)';
         }
         break;
       }
@@ -1344,10 +1393,13 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
   function homeOnLeft(game, quarter) {
     const base = game.start.homeDefendsLeftQ1 !== false;
     const q = Math.max(1, quarter || 1);
-    // teams change ends after Q1 and Q3; second half starts like the first (editable)
+    // teams change ends after Q1 and Q3; the second half starts like the first
     let left = (q === 2 || q === 4) ? !base : base;
     if (q >= 5) left = base;
-    if (game.view && game.view.flips && game.view.flips[q]) left = !left;
+    // a manual flip in a quarter carries forward, so the automatic change of ends stays right after it
+    const flips = (game.view && game.view.flips) || {};
+    let n = 0; for (let k = 1; k <= q; k++) if (flips[k]) n++;
+    if (n % 2) left = !left;
     return left;
   }
 
@@ -1589,7 +1641,8 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       const RR = E.replay(Object.assign({}, g, { events }));
       const d = RR.derived[RR.derived.length - 1];
       const scoreTxt = (d.after.score.home !== ctx.state.score.home || d.after.score.away !== ctx.state.score.away) ? ab(g, 'home') + ' ' + d.after.score.home + ' – ' + ab(g, 'away') + ' ' + d.after.score.away : '';
-      return { dd: E.dd(d.after, g), text: d.text + (d.flags.halfDistance ? ' · half the distance applied' : '') + (d.flags.error ? ' · ' + d.flags.error : ''), scoreTxt, after: d.after };
+      const who = d.after.phase === 'play' && d.after.possession ? ab(g, d.after.possession) + ' ball' : '';
+      return { dd: E.dd(d.after, g), who, text: d.text + (d.flags.halfDistance ? ' · half the distance applied' : '') + (d.flags.error ? ' · ' + d.flags.error : ''), scoreTxt, after: d.after };
     } catch (e) { return { dd: '', text: String(e), scoreTxt: '' }; }
   }
 
@@ -1761,7 +1814,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       const last = idxOf(cur.id) === steps.length - 1;
       const valid = cur.valid ? cur.valid() : true;
       if (last) {
-        if (valid) { const p = api.preview(); foot.append(h('div', { class: 'wiz-preview' }, h('div', { class: 'big num' }, p.dd + (p.scoreTxt ? '  ·  ' + p.scoreTxt : '')), h('div', { class: 'small muted' }, p.text))); }
+        if (valid) { const p = api.preview(); foot.append(h('div', { class: 'wiz-preview' }, h('div', { class: 'big num' }, (p.who ? p.who + ' · ' : '') + p.dd + (p.scoreTxt ? '  ·  ' + p.scoreTxt : '')), h('div', { class: 'small muted' }, p.text))); }
         foot.append(h('button', { type: 'button', class: 'btn primary big', disabled: !valid, onclick: () => api.finish() }, o.saveLabel || 'Add to log'));
       } else {
         const empty = cur.optional && !(cur.hasValue && cur.hasValue());
@@ -1846,24 +1899,31 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     };
   }
   // team toggle + optional player grid; o: {id, q, label, ev, kTeam, kPlayer, defaultTeam, teams:{home,away}, onTeam}
+  // o.requireTeam: no team is picked until she taps one; tapping a team whose players are not tracked moves on
   function teamPlayerStep(o) {
     const ev = o.ev;
     return {
-      id: o.id, q: o.q, label: o.label || o.q, optional: true, hasValue: () => !!ev[o.kPlayer], skipLabel: 'Next (no player)',
-      valid: () => true,
-      summary: () => { const g = game(); const t = ev[o.kTeam] || o.defaultTeam; return ab(g, t) + (ev[o.kPlayer] ? ' ' + pname(g, t, ev[o.kPlayer]) : ''); },
+      id: o.id, q: o.q, label: o.label || o.q, optional: !o.requireTeam, hasValue: () => !!ev[o.kPlayer], skipLabel: 'Next (no player)',
+      valid: () => !o.requireTeam || !!ev[o.kTeam],
+      summary: () => { const g = game(); const t = ev[o.kTeam] || o.defaultTeam; if (!t) return ''; return ab(g, t) + (ev[o.kPlayer] ? ' ' + pname(g, t, ev[o.kPlayer]) : ''); },
       render(body, api) {
-        if (!ev[o.kTeam]) ev[o.kTeam] = o.defaultTeam;
+        if (!ev[o.kTeam] && o.defaultTeam) ev[o.kTeam] = o.defaultTeam;
         const g = api.g;
-        const tog = h('div', { class: 'bigseg' });
+        const tog = h('div', { class: 'bigseg tall' });
         const grid = h('div', { class: 'pgrid' });
         const lbl = h('div', { class: 'lbl' }, 'Player (optional)');
         const pick = n => { ev[o.kPlayer] = String(n).replace(/^0+(?=\d)/, ''); if (api.isLast()) { draw(); api.refresh(); } else api.next(); };
+        const label = t => { const sub = o.teams && o.teams[t]; return sub ? [h('b', null, g.teams[t].name || ab(g, t)), h('span', null, sub)] : (g.teams[t].name || ab(g, t)); };
         const draw = () => {
-          tog.replaceChildren(...['home', 'away'].map(t => h('button', { type: 'button', class: ev[o.kTeam] === t ? 'on' : '', onclick: () => { if (ev[o.kTeam] !== t) { ev[o.kTeam] = t; ev[o.kPlayer] = ''; if (o.onTeam) o.onTeam(t); draw(); api.refresh(); } } }, (o.teams && o.teams[t]) || ab(g, t))));
+          tog.replaceChildren(...['home', 'away'].map(t => h('button', { type: 'button', class: ev[o.kTeam] === t ? 'on' : '', onclick: () => {
+            const changed = ev[o.kTeam] !== t;
+            if (changed) { ev[o.kTeam] = t; ev[o.kPlayer] = ''; if (o.onTeam) o.onTeam(t); }
+            if (o.requireTeam && !E.tracksPlayers(g, t) && !api.isLast()) { api.next(); return; }
+            if (changed) { draw(); api.refresh(); }
+          } }, label(t))));
           grid.replaceChildren();
           const T = ev[o.kTeam];
-          const tracked = E.tracksPlayers(g, T);
+          const tracked = !!T && E.tracksPlayers(g, T);
           lbl.hidden = !tracked; grid.hidden = !tracked;
           if (!tracked) return;
           roster(g, T).forEach(p => grid.append(chipEl(p.num, p.name || p.pos, String(ev[o.kPlayer]) === String(p.num), () => pick(p.num))));
@@ -2216,15 +2276,41 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     return steps;
   };
 
-  function enforceStep(g, ev, ctx) {
-    const st = ctx.state, off = st.possession || 'home';
-    const lastPlay = st.snapshot ? E.dd(st.snapshot, g) : null;
-    const R = getR();
-    const prevText = st.snapshotIndex >= 0 && R && R.derived[st.snapshotIndex] ? R.derived[st.snapshotIndex].text : '';
+  // the last play she entered that the flag could have been on (null at the start of a game or half, or after a reset)
+  function lastPlayInfo(g, ctx) {
+    const st = ctx.state, R = getR();
+    if (!st.snapshot || st.snapshotIndex == null || st.snapshotIndex < 0 || !R) return null;
+    const d = R.derived[st.snapshotIndex], pev = g.events[st.snapshotIndex];
+    if (!d || !pev) return null;
+    const kick = pev.type === 'kickoff' || pev.type === 'punt' || pev.type === 'fg';
+    const after = d.after, before = d.before;
+    const changed = before.phase === 'play' && after.phase === 'play' && after.possession !== before.possession;
+    return { index: st.snapshotIndex, text: d.text, dd: E.dd(before, g), kick, changed, keeper: after.phase === 'play' ? after.possession : null };
+  }
+  function flagPlayStep(g, ev, ctx, lp) {
+    const keeper = lp.keeper ? (g.teams[lp.keeper].name || ab(g, lp.keeper)) : '';
+    const opts = [
+      { v: 'none', l: 'No', sub: 'Before the snap, after the whistle, or the flagged play is not entered' },
+      { v: 'wipe', l: 'Yes, that play does not count', sub: lp.kick ? 'Kick it over: back to where the kick started' : 'Back to where that play started; the down is replayed' },
+      { v: 'add', l: 'Yes, but that play counts', sub: 'Add the yards where it ended' + ((lp.kick || lp.changed) && keeper ? '; ' + keeper + ' keeps the ball' : '') }
+    ];
     return {
-      id: 'enforce', q: 'How is it enforced?', label: 'Enforcement',
+      id: 'flagPlay', q: 'Was the flag on this play?', label: 'Flag on',
+      valid: () => !!ev.on,
+      summary: () => ({ none: 'not the last play', wipe: 'last play, wiped out', add: 'last play, counts' })[ev.on] || '',
+      render(body, api) {
+        body.append(h('div', { class: 'lastplay-card' }, h('div', { class: 'lbl' }, 'Last play entered · ' + lp.dd), h('div', { class: 'tx' }, lp.text)));
+        const grid = h('div', { class: 'choices one' });
+        opts.forEach(x => grid.append(h('button', { type: 'button', class: 'choice' + (ev.on === x.v ? ' on' : ''), onclick: () => { ev.on = x.v; if (api.isLast()) api.rerender(); else api.next(); } }, h('b', null, x.l), h('span', null, x.sub))));
+        body.append(grid);
+      }
+    };
+  }
+  function enforceStep(g, ev, ctx) {
+    return {
+      id: 'enforce', q: 'Yards and down', label: 'Enforcement',
       valid: () => ev.status !== 'accepted' || E.num(ev.yards, 0) >= 0,
-      summary: () => ev.status === 'declined' ? 'Declined' : ev.status === 'offsetting' ? 'Offsetting' : E.num(ev.yards, 0) + ' yds from ' + (ev.from === 'previous' ? 'the previous spot' : 'the ball') + (ev.downResult === 'auto' ? ', auto 1st' : ev.downResult === 'loss' ? ', loss of down' : ''),
+      summary: () => ev.status === 'declined' ? 'Declined' : ev.status === 'offsetting' ? 'Offsetting' : E.num(ev.yards, 0) + ' yds' + (ev.downResult === 'auto' ? ', auto 1st' : ev.downResult === 'loss' ? ', loss of down' : ''),
       render(body, api) {
         const mk = (label, opts, get, set) => {
           const row = h('div', { class: 'bigseg wrap' });
@@ -2232,73 +2318,81 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
           draw();
           return h('div', { class: 'fld' }, h('div', { class: 'lbl' }, label), row);
         };
-        const yardRow = h('div', { class: 'bigseg' });
-        const yardRead = h('span', { class: 'yard num', style: 'font-size:28px' }, String(E.num(ev.yards, 0)));
-        const padWrap = h('div', { hidden: true });
-        const kp = makeKeypad({ kind: 'int', max: 99, get: () => E.num(ev.yards, 0), set: v => { ev.yards = v; yardRead.textContent = String(v); drawYards(); api.refresh(); } });
-        padWrap.append(kp.el);
-        const drawYards = () => yardRow.replaceChildren(...[5, 10, 15].map(n => h('button', { type: 'button', class: E.num(ev.yards, 0) === n ? 'on' : '', onclick: () => { ev.yards = n; yardRead.textContent = String(n); kp.reset(); drawYards(); padWrap.hidden = true; api.refresh(); } }, n + ' yds')), h('button', { type: 'button', class: [5, 10, 15].includes(E.num(ev.yards, 0)) ? '' : 'on', onclick: () => { padWrap.hidden = !padWrap.hidden; } }, 'Other'));
-        drawYards();
-        body.append(h('div', { class: 'fld' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('div', { class: 'lbl' }, 'Yards'), yardRead), yardRow, padWrap));
         body.append(mk('Status', [{ v: 'accepted', l: 'Accepted' }, { v: 'declined', l: 'Declined' }, { v: 'offsetting', l: 'Offsetting' }], () => ev.status, v => { ev.status = v; }));
         if (ev.status === 'accepted') {
-          body.append(mk('Marked off from', [{ v: 'current', l: 'Where the ball is' }, { v: 'previous', l: 'Previous spot' }], () => ev.from, v => { ev.from = v; }));
-          body.append(h('div', { class: 'help' }, ev.from === 'previous'
-            ? (lastPlay ? 'Wipes out the last play (' + prevText + ') and marks off from the ' + E.fmtSpot(st.snapshot.spot, g) + ' with ' + lastPlay + '.' : 'There is no play to wipe out, so this is marked off from where the ball is.')
-            : 'The last play stands. Dead-ball fouls (false start, offside, delay, late hits) and fouls tacked on after a play.'));
-          if (st.phase === 'play' || (ev.from === 'previous' && st.snapshot && st.snapshot.phase === 'play')) body.append(mk('Down', [{ v: 'keep', l: ev.from === 'previous' ? 'Replay the down' : 'Same down' }, { v: 'auto', l: 'Automatic 1st' }, { v: 'loss', l: 'Loss of down' }], () => ev.downResult || 'keep', v => { ev.downResult = v; }));
-        } else if (ev.status === 'offsetting') body.append(h('div', { class: 'help' }, lastPlay ? 'Offsetting: the last play is wiped out and the down is replayed from the ' + E.fmtSpot(st.snapshot.spot, g) + '.' : 'Offsetting: no yardage, the down is replayed.'));
+          const yardRow = h('div', { class: 'bigseg' });
+          const yardRead = h('span', { class: 'yard num', style: 'font-size:28px' }, String(E.num(ev.yards, 0)));
+          const padWrap = h('div', { hidden: true });
+          const kp = makeKeypad({ kind: 'int', max: 99, get: () => E.num(ev.yards, 0), set: v => { ev.yards = v; yardRead.textContent = String(v); drawYards(); api.refresh(); } });
+          padWrap.append(kp.el);
+          const drawYards = () => yardRow.replaceChildren(...[5, 10, 15].map(n => h('button', { type: 'button', class: E.num(ev.yards, 0) === n ? 'on' : '', onclick: () => { ev.yards = n; yardRead.textContent = String(n); kp.reset(); drawYards(); padWrap.hidden = true; api.refresh(); } }, n + ' yds')), h('button', { type: 'button', class: [5, 10, 15].includes(E.num(ev.yards, 0)) ? '' : 'on', onclick: () => { padWrap.hidden = !padWrap.hidden; } }, 'Other'));
+          drawYards();
+          body.append(h('div', { class: 'fld' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('div', { class: 'lbl' }, 'Yards'), yardRead), yardRow, padWrap));
+          const p = C.previewFor(g, ctx, Object.assign({}, ev, { override: null }));
+          if (p.after && p.after.phase === 'play') body.append(mk('Down', [{ v: 'keep', l: ev.on && ev.on !== 'none' ? 'Replay the down' : 'Same down' }, { v: 'auto', l: 'Automatic 1st' }, { v: 'loss', l: 'Loss of down' }], () => ev.downResult || 'keep', v => { ev.downResult = v; }));
+        } else if (ev.status === 'offsetting') body.append(h('div', { class: 'help' }, ev.on === 'wipe' ? 'Offsetting: the last play is wiped out and the down is replayed.' : 'Offsetting: no yardage; the down is replayed.'));
         else body.append(h('div', { class: 'help' }, 'Declined: the play stands and nothing moves. It is only noted in the log.'));
-        body.append(h('button', { type: 'button', class: 'linkbtn', style: 'align-self:flex-start', onclick: () => { ev.override = ev.override ? null : {}; api.rerender(); } }, ev.override ? 'Remove the hand adjustment' : 'Adjust the result by hand…'));
+        body.append(h('div', { class: 'help' }, 'Check the result at the bottom against where the officials put the ball. If it is different, fix it by hand.'));
+        body.append(h('button', { type: 'button', class: 'btn', style: 'align-self:flex-start', onclick: () => { ev.override = ev.override ? null : {}; if (ev.override) api.next(); else api.rerender(); } }, ev.override ? 'Undo the hand placement' : 'Place the ball by hand…'));
       }
     };
   }
   function overrideStep(g, ev, ctx) {
-    const st = ctx.state, L = E.settingsOf(g).fieldLength;
+    const L = E.settingsOf(g).fieldLength;
     const o = ev.override || (ev.override = {});
-    const poss = () => o.possession || (ev.from === 'previous' && st.snapshot ? st.snapshot.possession : st.possession) || 'home';
+    const computed = () => C.previewFor(g, ctx, Object.assign({}, ev, { override: null })).after || ctx.state;
+    const poss = () => o.possession || computed().possession || 'home';
     return {
-      id: 'override', q: 'Set the result by hand', label: 'Adjusted',
+      id: 'override', q: 'Where did the officials put the ball?', label: 'Placed by hand',
       valid: () => true,
       summary: () => [o.possession ? ab(g, o.possession) + ' ball' : '', o.spot != null && o.spot !== '' ? 'at the ' + E.fmtSpot(E.num(o.spot, 0), g) : '', o.down ? E.ordinal(o.down) + ' down' : '', o.distance === 'goal' ? 'goal to go' : (o.distance != null && o.distance !== '' ? '& ' + o.distance : '')].filter(Boolean).join(', ') || 'no changes',
       render(body, api) {
-        body.append(h('div', { class: 'help' }, 'Only what you change here overrides the computed result.'));
+        body.append(h('div', { class: 'help' }, 'Change only what is different from the result at the bottom.'));
         const teamRow = h('div', { class: 'bigseg' });
-        const drawTeam = () => teamRow.replaceChildren(...['home', 'away'].map(t => h('button', { type: 'button', class: poss() === t ? 'on' : '', onclick: () => { o.possession = t; drawTeam(); api.refresh(); } }, ab(g, t) + ' ball')));
+        const drawTeam = () => teamRow.replaceChildren(...['home', 'away'].map(t => h('button', { type: 'button', class: poss() === t ? 'on' : '', onclick: () => { o.possession = t === computed().possession ? '' : t; drawTeam(); api.refresh(); } }, ab(g, t) + ' ball')));
         drawTeam();
-        body.append(h('div', { class: 'fld' }, h('div', { class: 'lbl' }, 'Possession'), teamRow));
-        const spotRead = h('span', { class: 'yard num', style: 'font-size:28px' }, o.spot != null && o.spot !== '' ? E.fmtSpot(E.num(o.spot, st.spot), g) : 'unchanged');
-        const sides = h('div', { class: 'bigseg' });
-        const curAbs = () => (o.spot != null && o.spot !== '' ? E.num(o.spot, st.spot) : st.spot);
+        body.append(h('div', { class: 'fld' }, h('div', { class: 'lbl' }, 'Whose ball'), teamRow));
+        const curAbs = () => (o.spot != null && o.spot !== '' ? E.num(o.spot, 0) : computed().spot);
         const curSide = () => { const q = E.spotParts(curAbs(), L); return q.side === 'mid' ? E.opp(poss()) : q.side; };
-        const drawSides = () => sides.replaceChildren(...['home', 'away'].map(t => h('button', { type: 'button', class: curSide() === t ? 'on' : '', onclick: () => { o.spot = E.absFrom(t, E.spotParts(curAbs(), L).yard, L); spotRead.textContent = E.fmtSpot(o.spot, g); drawSides(); api.refresh(); } }, ab(g, t))));
-        drawSides();
-        const kp = makeKeypad({ kind: 'yardline', max: L / 2, mid: L / 2, get: () => E.spotParts(curAbs(), L).yard, set: y => { o.spot = E.absFrom(curSide(), E.clamp(y, 0, L / 2), L); spotRead.textContent = E.fmtSpot(o.spot, g); drawSides(); api.refresh(); } });
-        body.append(h('div', { class: 'fld' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('div', { class: 'lbl' }, 'Ball spot'), spotRead), sides, kp.el));
+        const spotRead = h('span', { class: 'yard num', style: 'font-size:28px' }, E.fmtSpot(curAbs(), g));
+        const kp = makeKeypad({ kind: 'yardline', max: L / 2, mid: L / 2, get: () => E.spotParts(curAbs(), L).yard,
+          sides: { options: ['home', 'away'].map(t => ({ v: t, l: ab(g, t), color: g.teams[t].color })), value: curSide, onChange: t => { o.spot = E.absFrom(t, E.spotParts(curAbs(), L).yard, L); spotRead.textContent = E.fmtSpot(o.spot, g); api.refresh(); } },
+          set: y => { o.spot = E.absFrom(curSide(), E.clamp(y, 0, L / 2), L); spotRead.textContent = E.fmtSpot(o.spot, g); api.refresh(); } });
+        body.append(h('div', { class: 'fld' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('div', { class: 'lbl' }, 'Ball at'), spotRead), kp.el));
         const downRow = h('div', { class: 'bigseg' });
         const drawDown = () => downRow.replaceChildren(...[1, 2, 3, 4].map(n => h('button', { type: 'button', class: E.num(o.down, 0) === n ? 'on' : '', onclick: () => { o.down = E.num(o.down, 0) === n ? '' : n; drawDown(); api.refresh(); } }, E.ordinal(n))));
         drawDown();
         body.append(h('div', { class: 'fld' }, h('div', { class: 'lbl' }, 'Down'), downRow));
         const distRow = h('div', { class: 'bigseg wrap' });
-        const drawDist = () => distRow.replaceChildren(...[['goal', 'Goal to go'], [10, '& 10'], [5, '& 5'], [1, '& 1'], [15, '& 15'], [20, '& 20']].map(([v, l]) => h('button', { type: 'button', class: o.distance === v ? 'on' : '', onclick: () => { o.distance = o.distance === v ? '' : v; drawDist(); api.refresh(); } }, l)));
+        const drawDist = () => distRow.replaceChildren(...[['goal', 'Goal'], [10, '& 10'], [5, '& 5'], [15, '& 15'], [20, '& 20'], [1, '& 1']].map(([v, l]) => h('button', { type: 'button', class: o.distance === v ? 'on' : '', onclick: () => { o.distance = o.distance === v ? '' : v; drawDist(); api.refresh(); } }, l)));
         drawDist();
-        body.append(h('div', { class: 'fld' }, h('div', { class: 'lbl' }, 'Distance'), distRow));
+        body.append(h('div', { class: 'fld' }, h('div', { class: 'lbl' }, 'To go'), distRow));
       }
     };
   }
   flows.penalty = (g, ev, ctx) => {
-    const st = ctx.state, off = st.possession || 'home', def = E.opp(off);
+    const st = ctx.state, kickPhase = st.phase === 'kickoff' || st.phase === 'free_kick';
+    const off = st.possession || 'home', def = E.opp(off);
     if (!ev.status) ev.status = 'accepted';
-    if (!ev.from) ev.from = 'current';
     if (!ev.downResult) ev.downResult = 'keep';
     if (ev.yards == null) ev.yards = 5;
+    if (!ev.on && ev.from) { ev.on = ev.from === 'previous' ? 'wipe' : 'none'; } // games saved before this change
+    delete ev.from;
+    const lp = lastPlayInfo(g, ctx);
+    const preset = E.PENALTY_PRESETS.find(x => x.name === ev.name);
+    if (!lp && !ev.on) ev.on = 'none';
     const steps = [];
-    steps.push(choiceStep({ id: 'foul', q: 'What was the foul?', label: 'Foul', cols: 2, options: E.PENALTY_PRESETS.map(p => ({ v: p.name, l: p.name, sub: p.yards + ' yds' })), get: () => ev.name, set: name => {
+    steps.push(choiceStep({ id: 'foul', q: 'What was the foul?', label: 'Foul', cols: 2, options: E.PENALTY_PRESETS.map(p => ({ v: p.name, l: p.name, sub: p.yards + ' yds' + (p.down === 'auto' ? ', auto 1st' : p.down === 'loss' ? ', loss of down' : '') })), get: () => ev.name, set: name => {
       const p = E.PENALTY_PRESETS.find(x => x.name === name); ev.name = name;
-      if (p) { ev.yards = p.yards; ev.from = p.from; ev.downResult = p.down; if (p.side === 'off') ev.against = off; else if (p.side === 'def') ev.against = def; }
+      if (!p) return;
+      ev.yards = p.yards; ev.downResult = p.down; ev.player = '';
+      const side = kickPhase && p.kickSide ? (p.kickSide === 'kick' ? 'off' : 'def') : p.side;
+      ev.against = side === 'off' ? off : side === 'def' ? def : '';
+      ev.on = p.pre || !lp ? 'none' : '';
     } }));
-    if (!ev.against) ev.against = def;
-    steps.push(teamPlayerStep({ id: 'against', q: 'On whom?', label: 'Against', ev, kTeam: 'against', kPlayer: 'player', defaultTeam: ev.against, teams: st.phase === 'play' ? { [off]: ab(g, off) + ' (offense)', [def]: ab(g, def) + ' (defense)' } : null }));
+    const labels = kickPhase ? { [off]: 'kicking', [def]: 'receiving' } : st.phase === 'try' ? { [off]: 'on the try', [def]: 'defending' } : { [off]: 'has the ball', [def]: 'defending' };
+    steps.push(teamPlayerStep({ id: 'against', q: 'Which team was it on?', label: 'On', ev, kTeam: 'against', kPlayer: 'player', requireTeam: true, teams: labels }));
+    if (lp && !(preset && preset.pre)) steps.push(flagPlayStep(g, ev, ctx, lp));
     steps.push(enforceStep(g, ev, ctx));
     if (ev.override) steps.push(overrideStep(g, ev, ctx));
     return steps;
