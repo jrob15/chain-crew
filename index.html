@@ -226,6 +226,13 @@ details.adv > .stack { padding-bottom: 12px; }
 .bigseg.tall button b { font-size: 19px; }
 .bigseg.tall button span { font-family: var(--font-body); font-size: 12px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
 .bigseg.tall button.on span { color: var(--bg); opacity: .75; }
+.toggle-chip { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 8px 14px; border-radius: 12px; border: 2px dashed var(--line); background: var(--surface); color: var(--fg); text-align: left; }
+.toggle-chip .box { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 6px; border: 2px solid var(--muted); display: grid; place-items: center; font-weight: 800; font-size: 18px; }
+.toggle-chip .tx { display: flex; flex-direction: column; gap: 1px; }
+.toggle-chip .tx b { font-family: var(--font-display); font-size: 20px; letter-spacing: .03em; }
+.toggle-chip .tx span { font-size: 12px; color: var(--muted); }
+.toggle-chip.on { border-style: solid; border-color: var(--accent); }
+.toggle-chip.on .box { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .lastplay-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; }
 .lastplay-card .lbl { margin-bottom: 2px; }
 .lastplay-card .tx { font-size: 15px; }
@@ -612,6 +619,10 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         const def = opp(team), start = st.spot;
         const res = ev.spike ? 'incomplete' : ev.result;
         flags.start = start;
+        if (ev.hurried && res !== 'sack' && !ev.spike) {
+          D(deltas, def, null, 'qbh');
+          (ev.hurry || []).forEach(n => { if (n != null && n !== '') D(deltas, def, n, 'qbh'); });
+        }
         if (res === 'complete') {
           let end = ev.result === 'complete' && ev.td ? goal(team, L) : (ev.mode === 'yards' ? start + num(ev.yards, 0) * dir(team) : num(ev.endSpot, start));
           if (ev.safety) end = ownGoal(team, L);
@@ -1201,6 +1212,10 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
         } else if (ev.result === 'sack') {
           s = P + ' sacked for ' + ydsTxt(f.yards) + (ev.safety ? ', SAFETY' : ' to the ' + fmtSpot(f.end, game)) + tacklersTxt(game, def, ev.tacklers);
           if (ev.fumble && ev.fumble.on) s += ', FUMBLE' + fumbleTxt(game, team, ev.fumble, f);
+        }
+        if (ev.hurried && ev.result !== 'sack' && !ev.spike) {
+          const hb = (ev.hurry || []).filter(x => x != null && x !== '').map(n => pname(game, def, n));
+          s += ' (QB hurried' + (hb.length ? ' by ' + hb.join(', ') : '') + ')';
         }
         break;
       }
@@ -2112,6 +2127,31 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     return steps;
   };
 
+  // pass result, with a QB-hurried toggle above the four results
+  function passResultStep(ev) {
+    const opts = [{ v: 'complete', l: 'Complete' }, { v: 'incomplete', l: 'Incomplete' }, { v: 'intercepted', l: 'Intercepted' }, { v: 'sack', l: 'Sack' }];
+    return {
+      id: 'passResult', q: 'What happened?', label: 'Result',
+      valid: () => !!ev.result,
+      summary: () => { const x = opts.find(o => o.v === ev.result); return (x ? x.l : '') + (ev.hurried && ev.result !== 'sack' ? ', QB hurried' : ''); },
+      render(body, api) {
+        const hurry = h('button', { type: 'button', class: 'toggle-chip' + (ev.hurried ? ' on' : ''), 'aria-pressed': ev.hurried ? 'true' : 'false' },
+          h('span', { class: 'box' }, ev.hurried ? '✓' : ''), h('span', { class: 'tx' }, h('b', null, 'QB hurried'), h('span', null, 'Tap this first if he was rushed, then the result')));
+        hurry.addEventListener('click', () => {
+          ev.hurried = !ev.hurried; if (!ev.hurried) ev.hurry = [];
+          hurry.classList.toggle('on', ev.hurried); hurry.setAttribute('aria-pressed', ev.hurried ? 'true' : 'false');
+          hurry.querySelector('.box').textContent = ev.hurried ? '✓' : '';
+          api.refresh();
+        });
+        const grid = h('div', { class: 'choices' });
+        opts.forEach(x => grid.append(h('button', { type: 'button', class: 'choice' + (x.v === ev.result ? ' on' : ''), onclick: () => {
+          if (ev.result !== x.v) { ev.result = x.v; ev.td = false; ev.safety = false; if (ev.fumble) ev.fumble.on = false; }
+          if (api.isLast()) api.rerender(); else api.next();
+        } }, h('b', null, x.l))));
+        body.append(hurry, grid);
+      }
+    };
+  }
   flows.pass = (g, ev, ctx) => {
     const st = ctx.state, steps = [...driveClock(g, ev, ctx)];
     if (!ev.team) ev.team = st.possession || 'home';
@@ -2120,7 +2160,8 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     if (ev.passer == null) ev.passer = UI.lastPlayer[team + ':passer'] || '';
     steps.push(playerStep({ id: 'passer', q: 'Who threw it?', label: 'Passer', team, ev, key: 'passer', optional: true, skip: () => !!ev.passer }));
     if (ev.spike) { steps.push(infoStep({ id: 'spike', q: 'Spike', label: 'Play', summary: 'Spike', text: 'Clock-stopping spike: an incomplete pass with no target. Add it to the log.' })); return steps; }
-    steps.push(choiceStep({ id: 'passResult', q: 'What happened?', label: 'Result', options: [{ v: 'complete', l: 'Complete' }, { v: 'incomplete', l: 'Incomplete' }, { v: 'intercepted', l: 'Intercepted' }, { v: 'sack', l: 'Sack' }], get: () => ev.result, set: v => { ev.result = v; ev.td = false; ev.safety = false; if (ev.fumble) ev.fumble.on = false; } }));
+    steps.push(passResultStep(ev));
+    if (ev.hurried && ev.result && ev.result !== 'sack') steps.push(playerStep({ id: 'hurry', q: 'Who hurried the QB?', label: 'Hurried by', team: def, ev, key: 'hurry', multi: true, max: 2, optional: true, hint: 'Tap up to 2, or Skip if you are not sure who.' }));
     const fumbleOn = () => !!(ev.fumble && ev.fumble.on);
     if (ev.result === 'complete') {
       steps.push(playerStep({ id: 'receiver', q: 'Who caught it?', label: 'Receiver', team, ev, key: 'receiver', optional: true }));
@@ -2282,6 +2323,8 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     if (!st.snapshot || st.snapshotIndex == null || st.snapshotIndex < 0 || !R) return null;
     const d = R.derived[st.snapshotIndex], pev = g.events[st.snapshotIndex];
     if (!d || !pev) return null;
+    const upto = Math.min(ctx.index == null ? g.events.length : ctx.index, g.events.length);
+    for (let i = st.snapshotIndex + 1; i < upto; i++) if (g.events[i] && g.events[i].type === 'penalty') return null; // flags in a row: enforce from where the ball is
     const kick = pev.type === 'kickoff' || pev.type === 'punt' || pev.type === 'fg';
     const after = d.after, before = d.before;
     const changed = before.phase === 'play' && after.phase === 'play' && after.possession !== before.possession;
@@ -2698,7 +2741,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
     passing: { title: 'Passing', cols: ['C-A', 'Yds', 'TD', 'INT', 'Lg', 'Sk'], has: p => p.passAtt, row: p => [(p.passComp || 0) + '-' + (p.passAtt || 0), p.passYds || 0, p.passTD || 0, p.passInt || 0, lg(p.passLong), p.sacked || 0], sort: p => p.passYds || 0 },
     rushing: { title: 'Rushing', cols: ['Att', 'Yds', 'Avg', 'TD', 'Lg'], has: p => p.rushAtt, row: p => [p.rushAtt || 0, p.rushYds || 0, avg(p.rushYds, p.rushAtt), p.rushTD || 0, lg(p.rushLong)], sort: p => p.rushYds || 0 },
     receiving: { title: 'Receiving', cols: ['Rec', 'Yds', 'Avg', 'TD', 'Lg', 'Tgt'], has: p => p.rec || p.targets, row: p => [p.rec || 0, p.recYds || 0, avg(p.recYds, p.rec), p.recTD || 0, lg(p.recLong), p.targets || 0], sort: p => p.recYds || 0 },
-    defense: { title: 'Defense', cols: ['Solo', 'Ast', 'Tot', 'TFL', 'Sck', 'INT', 'PBU', 'FF', 'FR', 'TD'], has: p => p.tackSolo || p.tackAst || p.sacks || p.int || p.pbu || p.ff || p.fr || p.defTD, row: p => [p.tackSolo || 0, p.tackAst || 0, (p.tackSolo || 0) + (p.tackAst || 0), p.tfl || 0, p.sacks || 0, p.int || 0, p.pbu || 0, p.ff || 0, p.fr || 0, p.defTD || 0], sort: p => (p.tackSolo || 0) + (p.tackAst || 0) },
+    defense: { title: 'Defense', cols: ['Solo', 'Ast', 'Tot', 'TFL', 'Sck', 'QBH', 'INT', 'PBU', 'FF', 'FR', 'TD'], has: p => p.tackSolo || p.tackAst || p.sacks || p.qbh || p.int || p.pbu || p.ff || p.fr || p.defTD, row: p => [p.tackSolo || 0, p.tackAst || 0, (p.tackSolo || 0) + (p.tackAst || 0), p.tfl || 0, p.sacks || 0, p.qbh || 0, p.int || 0, p.pbu || 0, p.ff || 0, p.fr || 0, p.defTD || 0], sort: p => (p.tackSolo || 0) + (p.tackAst || 0) },
     kicking: { title: 'Kicking', cols: ['FG', 'Lg', 'PAT', 'KO', 'KO Avg', 'TB'], has: p => p.fgAtt || p.patAtt || p.ko, row: p => [(p.fgMade || 0) + '-' + (p.fgAtt || 0), lg(p.fgLong), (p.patMade || 0) + '-' + (p.patAtt || 0), p.ko || 0, avg(p.koYds, p.ko), p.koTB || 0], sort: p => (p.fgAtt || 0) + (p.patAtt || 0) + (p.ko || 0) },
     punting: { title: 'Punting', cols: ['No', 'Yds', 'Avg', 'Lg', 'In20', 'TB', 'Blk'], has: p => p.punts, row: p => [p.punts || 0, p.puntYds || 0, avg(p.puntYds, p.punts), lg(p.puntLong), p.puntIn20 || 0, p.puntTB || 0, p.puntBlocked || 0], sort: p => p.punts || 0 },
     returns: { title: 'Returns', cols: ['KR', 'Yds', 'Avg', 'TD', 'PR', 'Yds', 'Avg', 'TD'], has: p => p.kr || p.pr, row: p => [p.kr || 0, p.krYds || 0, avg(p.krYds, p.kr), p.krTD || 0, p.pr || 0, p.prYds || 0, avg(p.prYds, p.pr), p.prTD || 0], sort: p => (p.krYds || 0) + (p.prYds || 0) },
@@ -2733,6 +2776,7 @@ tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
       r('Passing yards', t => String(t.passYds || 0)),
       r('Total plays–yards', t => (t.totalPlays || 0) + '–' + (t.totalYds || 0)),
       r('Sacked (no–yds)', t => (t.sacked || 0) + '–' + (t.sackYdsLost || 0)),
+      r('QB hurries by the defense', t => String(t.qbh || 0)),
       r('Punts (no–avg)', t => (t.punts || 0) + '–' + avg(t.puntYds, t.punts)),
       r('Penalties (no–yds)', t => (t.penalties || 0) + '–' + (t.penaltyYds || 0)),
       r('Turnovers', t => String(t.turnovers || 0)),
